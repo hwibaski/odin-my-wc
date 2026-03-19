@@ -12,6 +12,7 @@ test_empty_string :: proc(t: ^testing.T) {
 	testing.expect_value(t, counts.line_count, 0)
 	testing.expect_value(t, counts.word_count, 0)
 	testing.expect_value(t, counts.byte_count, 0)
+	testing.expect_value(t, counts.char_count, 0)
 }
 
 @(test)
@@ -22,6 +23,7 @@ test_single_word :: proc(t: ^testing.T) {
 	testing.expect_value(t, counts.line_count, 0)
 	testing.expect_value(t, counts.word_count, 1)
 	testing.expect_value(t, counts.byte_count, 5)
+	testing.expect_value(t, counts.char_count, 5)
 }
 
 @(test)
@@ -92,6 +94,16 @@ test_korean_included :: proc(t: ^testing.T) {
 	testing.expect_value(t, counts.line_count, 0)
 	testing.expect_value(t, counts.word_count, 2)
 	testing.expect_value(t, counts.byte_count, 13)
+	testing.expect_value(t, counts.char_count, 5)
+}
+
+@(test)
+test_emoji_char_count :: proc(t: ^testing.T) {
+	str := "a🙂b"
+	data := transmute([]u8)(str)
+	counts := count_all(data)
+	testing.expect_value(t, counts.byte_count, 6)
+	testing.expect_value(t, counts.char_count, 3)
 }
 
 @(test)
@@ -117,29 +129,29 @@ test_crlf :: proc(t: ^testing.T) {
 // --- format_output 테스트 ---
 
 make_test_counts :: proc() -> Counts {
-	return Counts{byte_count = 34, line_count = 3, word_count = 5}
+	return Counts{byte_count = 34, line_count = 3, word_count = 5, char_count = 21}
 }
 
 @(test)
 test_format_no_flags :: proc(t: ^testing.T) {
 	counts := make_test_counts()
-	output := format_output(counts, "temp.txt", false, false, false)
+	output := format_output(counts, "temp.txt", false, false, false, false)
 	defer delete(output)
-	testing.expect_value(t, output, "bytes: 34, words: 5, lines: 3, temp.txt")
+	testing.expect_value(t, output, "bytes: 34, words: 5, lines: 3, chars: 21, temp.txt")
 }
 
 @(test)
 test_format_all_flags :: proc(t: ^testing.T) {
 	counts := make_test_counts()
-	output := format_output(counts, "temp.txt", true, true, true)
+	output := format_output(counts, "temp.txt", true, true, true, true)
 	defer delete(output)
-	testing.expect_value(t, output, "bytes: 34, words: 5, lines: 3, temp.txt")
+	testing.expect_value(t, output, "bytes: 34, words: 5, lines: 3, chars: 21, temp.txt")
 }
 
 @(test)
 test_format_lines_only :: proc(t: ^testing.T) {
 	counts := make_test_counts()
-	output := format_output(counts, "temp.txt", true, false, false)
+	output := format_output(counts, "temp.txt", true, false, false, false)
 	defer delete(output)
 	testing.expect_value(t, output, "lines: 3, temp.txt")
 }
@@ -147,7 +159,7 @@ test_format_lines_only :: proc(t: ^testing.T) {
 @(test)
 test_format_words_only :: proc(t: ^testing.T) {
 	counts := make_test_counts()
-	output := format_output(counts, "temp.txt", false, true, false)
+	output := format_output(counts, "temp.txt", false, true, false, false)
 	defer delete(output)
 	testing.expect_value(t, output, "words: 5, temp.txt")
 }
@@ -155,15 +167,23 @@ test_format_words_only :: proc(t: ^testing.T) {
 @(test)
 test_format_bytes_only :: proc(t: ^testing.T) {
 	counts := make_test_counts()
-	output := format_output(counts, "temp.txt", false, false, true)
+	output := format_output(counts, "temp.txt", false, false, true, false)
 	defer delete(output)
 	testing.expect_value(t, output, "bytes: 34, temp.txt")
 }
 
 @(test)
+test_format_chars_only :: proc(t: ^testing.T) {
+	counts := make_test_counts()
+	output := format_output(counts, "temp.txt", false, false, false, true)
+	defer delete(output)
+	testing.expect_value(t, output, "chars: 21, temp.txt")
+}
+
+@(test)
 test_format_lines_and_bytes :: proc(t: ^testing.T) {
 	counts := make_test_counts()
-	output := format_output(counts, "temp.txt", true, false, true)
+	output := format_output(counts, "temp.txt", true, false, true, false)
 	defer delete(output)
 	testing.expect_value(t, output, "bytes: 34, lines: 3, temp.txt")
 }
@@ -171,7 +191,7 @@ test_format_lines_and_bytes :: proc(t: ^testing.T) {
 @(test)
 test_format_lines_and_words :: proc(t: ^testing.T) {
 	counts := make_test_counts()
-	output := format_output(counts, "temp.txt", true, true, false)
+	output := format_output(counts, "temp.txt", true, true, false, false)
 	defer delete(output)
 	testing.expect_value(t, output, "words: 5, lines: 3, temp.txt")
 }
@@ -179,7 +199,7 @@ test_format_lines_and_words :: proc(t: ^testing.T) {
 @(test)
 test_format_words_and_bytes :: proc(t: ^testing.T) {
 	counts := make_test_counts()
-	output := format_output(counts, "temp.txt", false, true, true)
+	output := format_output(counts, "temp.txt", false, true, true, false)
 	defer delete(output)
 	testing.expect_value(t, output, "bytes: 34, words: 5, temp.txt")
 }
@@ -189,15 +209,15 @@ test_format_words_and_bytes :: proc(t: ^testing.T) {
 @(test)
 test_format_with_total_prefix :: proc(t: ^testing.T) {
 	counts := make_test_counts()
-	output := format_output(counts, "", false, false, false, "total_")
+	output := format_output(counts, "", false, false, false, false, "total_")
 	defer delete(output)
-	testing.expect_value(t, output, "total_bytes: 34, total_words: 5, total_lines: 3")
+	testing.expect_value(t, output, "total_bytes: 34, total_words: 5, total_lines: 3, total_chars: 21")
 }
 
 @(test)
 test_format_with_total_prefix_lines_only :: proc(t: ^testing.T) {
 	counts := make_test_counts()
-	output := format_output(counts, "", true, false, false, "total_")
+	output := format_output(counts, "", true, false, false, false, "total_")
 	defer delete(output)
 	testing.expect_value(t, output, "total_lines: 3")
 }
@@ -205,9 +225,9 @@ test_format_with_total_prefix_lines_only :: proc(t: ^testing.T) {
 @(test)
 test_format_empty_path_no_trailing_comma :: proc(t: ^testing.T) {
 	counts := make_test_counts()
-	output := format_output(counts, "", false, false, false)
+	output := format_output(counts, "", false, false, false, false)
 	defer delete(output)
-	testing.expect_value(t, output, "bytes: 34, words: 5, lines: 3")
+	testing.expect_value(t, output, "bytes: 34, words: 5, lines: 3, chars: 21")
 }
 
 // --- 문자열 동적 조합 학습 테스트 ---

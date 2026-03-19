@@ -10,6 +10,7 @@ Options :: struct {
 	lines:    bool `usage:"print the newline counts"`,
 	words:    bool `usage:"print the word counts"`,
 	bytes:    bool `usage:"print the byte counts"`,
+	chars:    bool `usage:"print the character counts"`,
 }
 
 main :: proc() {
@@ -31,7 +32,7 @@ main :: proc() {
 		return
 	}
 
-	total_counts := Counts{0, 0, 0}
+	total_counts := Counts{0, 0, 0, 0}
 	has_error := false
 
 	for path in opt.overflow {
@@ -72,13 +73,13 @@ read_stdin :: proc() -> (data: []u8, ok: bool) {
 format_output :: proc(
 	counts: Counts,
 	path: string,
-	show_lines, show_words, show_bytes: bool,
+	show_lines, show_words, show_bytes, show_chars: bool,
 	prefix := "",
 ) -> string {
 	parts: [dynamic]string
 	defer delete(parts)
 
-	show_all := !show_bytes && !show_words && !show_lines
+	show_all := !show_bytes && !show_words && !show_lines && !show_chars
 	if show_all || show_bytes {
 		append(&parts, fmt.tprintf("%sbytes: %d", prefix, counts.byte_count))
 	}
@@ -87,6 +88,9 @@ format_output :: proc(
 	}
 	if show_all || show_lines {
 		append(&parts, fmt.tprintf("%slines: %d", prefix, counts.line_count))
+	}
+	if show_all || show_chars {
+		append(&parts, fmt.tprintf("%schars: %d", prefix, counts.char_count))
 	}
 	if path != "" {
 		append(&parts, path)
@@ -97,7 +101,7 @@ format_output :: proc(
 
 
 print_counts :: proc(counts: Counts, opt: Options, path: string, prefix := "") {
-	output := format_output(counts, path, opt.lines, opt.words, opt.bytes, prefix)
+	output := format_output(counts, path, opt.lines, opt.words, opt.bytes, opt.chars, prefix)
 	defer delete(output)
 	fmt.println(output)
 }
