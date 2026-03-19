@@ -523,3 +523,361 @@ fmt.println(len(bytes)) // 3
 - 바이트를 수정해야 하면 `make + copy`
 - 잠깐 문자열로 볼 거면 `string(data)`
 - 오래 보관할 문자열이면 `strings.clone_from_bytes(data)`
+
+---
+
+## `core:flags` 패키지 학습 노트
+
+### 개요
+
+`core:flags`는 Odin의 런타임 타입 정보를 활용해서 struct 필드를 CLI 인자로 자동 매핑해주는 패키지입니다.
+
+- 공식 문서: https://pkg.odin-lang.org/core/flags/
+
+---
+
+### 파싱 스타일
+
+```odin
+flags.Parsing_Style :: enum int {
+    Odin,  // -flag, -flag:option, -flag=option
+    Unix,  // --flag, --flag=argument, --flag argument
+}
+```
+
+- `.Odin` (기본값): `-lines`, `-bytes` 형태
+- `.Unix`: `--lines`, `--bytes` 형태 (GNU 스타일)
+
+---
+
+### struct 태그로 플래그 정의하기
+
+```odin
+import "core:flags"
+
+Options :: struct {
+    file:  string `args:"pos=0,required" usage:"input file path"`,
+    lines: bool   `usage:"print the newline counts"`,
+    words: bool   `usage:"print the word counts"`,
+    bytes: bool   `usage:"print the byte counts"`,
+}
+```
+
+#### `args` 태그 옵션들
+
+| 옵션 | 설명 | 예시 |
+| --- | --- | --- |
+| `pos=N` | N번째 위치 인자 (0부터 시작) | `args:"pos=0"` |
+| `required` | 필수 인자 | `args:"pos=0,required"` |
+| `name=S` | 플래그 이름 커스텀 지정 | `args:"name=lines"` |
+| `hidden` | usage 출력에서 숨김 | `args:"hidden"` |
+
+#### `usage` 태그
+
+플래그 설명 문자열입니다. `-h` 또는 `--help` 시 자동 출력됩니다.
+
+#### bool 필드
+
+- 기본값은 `false`
+- 플래그 이름만 넘기면 `true`로 세팅됨 (값 불필요)
+- 예: `--lines` → `opt.lines == true`
+
+---
+
+### `parse_or_exit` vs `parse`
+
+두 함수의 **가장 큰 차이**는 에러 처리 방식과 인자 전달 방식입니다.
+
+#### `parse_or_exit` — 간편 버전
+
+```odin
+parse_or_exit :: proc(
+    model:        ^$T,
+    program_args: [][string],   // os.args 통째로 전달
+    style:        Parsing_Style = .Odin,
+    allocator := context.allocator,
+)
+```
+
+**사용법:**
+
+```odin
+opt: Options
+flags.parse_or_exit(&opt, os.args, .Unix)
+// 여기까지 왔으면 파싱 성공이 보장됨
+```
+
+**동작:**
+- `os.args`를 **통째로** 넘긴다 (내부에서 `[0]` 프로그램 이름을 알아서 빼줌)
+- 에러 발생 시 → stderr에 에러 메시지 + usage 출력 후 `os.exit(1)`
+- `-h` / `--help` 입력 시 → usage 출력 후 `os.exit(0)`
+- 별도 에러 처리 코드가 **필요 없음**
+
+**장점:** 코드가 짧고 간결함
+**단점:** 에러 메시지를 커스텀할 수 없음
+
+#### `parse` — 수동 에러 처리 버전
+
+```odin
+parse :: proc(
+    model:         ^$T,
+    args:          [][string],   // os.args[1:] 으로 잘라서 전달
+    style:         Parsing_Style = .Odin,
+    validate_args: bool = true,
+    strict:        bool = true,
+    allocator := context.allocator,
+) -> (error: Error)
+```
+
+**사용법:**
+
+```odin
+opt: Options
+error := flags.parse(&opt, os.args[1:], .Unix)
+
+if error != nil {
+    switch e in error {
+    case flags.Parse_Error:
+        fmt.eprintln(e.message)
+    case flags.Validation_Error:
+        fmt.eprintln(e.message)
+    case flags.Help_Request:
+        // usage 출력
+    case flags.Open_File_Error:
+        // 파일 타입 필드 관련
+    }
+    os.exit(1)
+}
+```
+
+**동작:**
+- `os.args[1:]`을 넘겨야 함 (**프로그램 이름을 직접 제거**)
+- 에러를 `Error` union으로 반환 → 직접 분기 처리
+- `validate_args = true` (기본): `required` 필드 검증 수행
+- `strict = true` (기본): 첫 에러에서 즉시 반환. `false`면 가능한 만큼 파싱 후 마지막 에러만 반환
+
+**장점:** 에러 메시지 커스텀 가능, 세밀한 제어
+**단점:** 코드가 길어짐
+
+---
+
+### ⚠️ 핵심 차이: 인자 전달 방식
+
+| 함수 | 넘겨야 할 인자 | 이유 |
+| --- | --- | --- |
+| `parse_or_exit` | `os.args` (통째로) | 내부에서 `[0]`을 프로그램 이름으로 빼서 usage에 표시 |
+| `parse` | `os.args[1:]` (잘라서) | 프로그램 이름을 직접 제거해야 함 |
+
+```odin
+// ✅ 올바른 사용
+flags.parse_or_exit(&opt, os.args, .Unix)
+flags.parse(&opt, os.args[1:], .Unix)
+
+// ❌ 잘못된 사용 — pos=0에 프로그램 경로가 들어감
+flags.parse_or_exit(&opt, os.args[1:], .Unix)
+flags.parse(&opt, os.args, .Unix)
+```
+
+---
+
+### Error 타입
+
+`parse`가 반환하는 에러는 union 타입입니다:
+
+```odin
+Error :: union {
+    Parse_Error,       // 값 파싱 실패, 잘못된 플래그 등
+    Open_File_Error,   // os.Handle 타입 필드의 파일 열기 실패
+    Help_Request,      // -h 또는 --help 입력
+    Validation_Error,  // required 필드 누락
+}
+```
+
+에러 메시지는 `temp_allocator`로 할당됩니다.
+
+---
+
+### 예약된 플래그
+
+`-h`와 `-help`은 기본적으로 예약되어 있어서 `Help_Request` 에러를 발생시킵니다.
+
+---
+
+### 실전 사용 예시
+
+```bash
+# 플래그 없이 (기본 동작)
+./odin-my-wc temp.txt
+
+# 단일 플래그
+./odin-my-wc --lines temp.txt
+
+# 복수 플래그 (순서 무관)
+./odin-my-wc --lines --bytes temp.txt
+./odin-my-wc temp.txt --words
+
+# 도움말
+./odin-my-wc -h
+
+# odin run으로 실행 시 (-- 구분자 필요)
+odin run . -- --lines temp.txt
+```
+
+---
+
+### 실전 기준 요약
+
+- 간단한 CLI면 `parse_or_exit` 사용
+- 커스텀 에러 메시지가 필요하면 `parse` 사용
+- GNU 스타일(`--flag`)을 원하면 `.Unix` 지정
+- `parse_or_exit`에는 `os.args`, `parse`에는 `os.args[1:]`
+- bool 플래그는 값 없이 이름만 넘기면 `true`
+
+---
+
+## 문자열 동적 조합 학습 노트
+
+여러 조각의 문자열을 조건에 따라 조합해야 할 때 두 가지 방법이 있습니다.
+
+---
+
+### 방법 1: `[dynamic]string` + `strings.join`
+
+동적 배열에 문자열 조각을 `append`하고, 마지막에 `strings.join`으로 합치는 방식입니다.
+
+```odin
+import "core:fmt"
+import "core:strings"
+
+build_with_dynamic_array :: proc() -> string {
+    parts: [dynamic]string
+    defer delete(parts)  // 동적 배열 자체의 메모리 해제
+
+    append(&parts, fmt.tprintf("%d", 3))    // "3"
+    append(&parts, fmt.tprintf("%d", 5))    // "5"
+    append(&parts, fmt.tprintf("%d", 34))   // "34"
+    append(&parts, "temp.txt")
+
+    return strings.join(parts[:], " ")  // "3 5 34 temp.txt"
+}
+```
+
+#### 핵심 포인트
+
+- `[dynamic]string` — 길이가 가변인 배열. `append`로 요소를 추가할 수 있음
+- `&parts` — `append`는 배열을 변경하므로 포인터를 넘겨야 함
+- `parts[:]` — 동적 배열을 슬라이스(`[]string`)로 변환. `strings.join`은 슬라이스를 받음
+- `defer delete(parts)` — 동적 배열이 내부적으로 할당한 메모리를 정리
+- `strings.join`의 반환값 — **새로 할당된 문자열**이므로 호출자가 `delete`로 정리해야 함
+
+#### `fmt.tprintf`란?
+
+```odin
+fmt.tprintf("%d", 42)  // "42" 문자열 반환
+```
+
+- `fmt.printf`는 stdout에 출력하지만, `fmt.tprintf`는 문자열을 **반환**함
+- **temp allocator**를 사용하므로 짧은 수명. 함수 범위 안에서 사용하기에 적합
+- `fmt.aprintf`도 있음 — 이건 `context.allocator`를 사용해서 더 긴 수명
+
+#### 메모리 정리 흐름
+
+```odin
+result := build_with_dynamic_array()
+defer delete(result)  // strings.join이 할당한 문자열 정리
+fmt.println(result)
+```
+
+---
+
+### 방법 2: `strings.builder`
+
+`strings.Builder`로 문자열을 점진적으로 구성하는 방식입니다. 하나의 버퍼에 직접 쓰므로 중간 문자열 할당이 없습니다.
+
+```odin
+import "core:fmt"
+import "core:strings"
+
+build_with_builder :: proc() -> string {
+    b := strings.builder_make()
+    defer strings.builder_destroy(&b)  // 빌더 내부 버퍼 정리
+
+    strings.write_string(&b, "3")
+    strings.write_string(&b, " ")
+    strings.write_string(&b, "5")
+    strings.write_string(&b, " ")
+    strings.write_string(&b, "34")
+    strings.write_string(&b, " ")
+    strings.write_string(&b, "temp.txt")
+
+    return strings.clone(strings.to_string(b))  // 독립된 복사본 반환
+}
+```
+
+#### 핵심 포인트
+
+- `strings.builder_make()` — 빌더 생성. 내부에 가변 길이 버퍼를 갖고 있음
+- `strings.write_string(&b, ...)` — 버퍼 끝에 문자열 추가
+- `strings.to_string(b)` — 빌더 내부 버퍼를 `string`으로 **보기** (복사 아님, 뷰)
+- `strings.clone(...)` — 독립된 복사본 생성. 빌더가 파괴되어도 살아남음
+- `defer strings.builder_destroy(&b)` — 빌더 내부 버퍼 메모리 정리
+
+#### `fmt.sbprintf`로 더 간결하게
+
+빌더에 포맷된 문자열을 직접 쓸 수도 있습니다:
+
+```odin
+b := strings.builder_make()
+defer strings.builder_destroy(&b)
+
+fmt.sbprintf(&b, "%d", 3)
+strings.write_string(&b, " ")
+fmt.sbprintf(&b, "%d", 5)
+
+return strings.clone(strings.to_string(b))
+```
+
+- `fmt.sbprintf` — `strings.Builder`에 포맷 문자열을 직접 씀
+- `tprintf` + `write_string`을 합친 것과 같은 효과
+
+#### 구분자 처리를 깔끔하게
+
+조각 사이에 구분자를 넣을 때 첫 번째 요소 전에는 구분자가 들어가면 안 됩니다:
+
+```odin
+b := strings.builder_make()
+defer strings.builder_destroy(&b)
+
+first := true
+values := []int{3, 5, 34}
+
+for v in values {
+    if !first {
+        strings.write_string(&b, " ")
+    }
+    fmt.sbprintf(&b, "%d", v)
+    first = false
+}
+
+strings.write_string(&b, " temp.txt")
+// 결과: "3 5 34 temp.txt"
+```
+
+---
+
+### 두 방법 비교
+
+| 항목 | `[dynamic]string` + `join` | `strings.builder` |
+| --- | --- | --- |
+| 코드 가독성 | 직관적, 배열에 추가하고 합침 | 약간 더 장황 |
+| 중간 할당 | `tprintf`가 중간 문자열 생성 | 하나의 버퍼에 직접 씀 |
+| 구분자 처리 | `join`이 알아서 처리 | 수동으로 넣어야 함 |
+| 성능 | 조각이 적으면 차이 없음 | 조각이 많으면 더 효율적 |
+| 적합한 상황 | 조건부로 조각을 선택하는 경우 | 순차적으로 문자열을 쌓아가는 경우 |
+
+### 실전 기준 요약
+
+- 조건에 따라 **조각을 선택**해서 합칠 때 → `[dynamic]string` + `strings.join`
+- 순차적으로 **버퍼에 쌓아갈** 때 → `strings.builder`
+- 성능이 중요하지 않은 학습/CLI 단계에서는 어느 쪽이든 상관없음
+- 두 방법 모두 **반환된 문자열은 호출자가 `delete`로 정리**해야 함
