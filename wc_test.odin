@@ -184,6 +184,32 @@ test_format_words_and_bytes :: proc(t: ^testing.T) {
 	testing.expect_value(t, output, "bytes: 34, words: 5, temp.txt")
 }
 
+// --- 다중 파일 입력 관련 테스트 ---
+
+@(test)
+test_format_with_total_prefix :: proc(t: ^testing.T) {
+	counts := make_test_counts()
+	output := format_output(counts, "", false, false, false, "total_")
+	defer delete(output)
+	testing.expect_value(t, output, "total_bytes: 34, total_words: 5, total_lines: 3")
+}
+
+@(test)
+test_format_with_total_prefix_lines_only :: proc(t: ^testing.T) {
+	counts := make_test_counts()
+	output := format_output(counts, "", true, false, false, "total_")
+	defer delete(output)
+	testing.expect_value(t, output, "total_lines: 3")
+}
+
+@(test)
+test_format_empty_path_no_trailing_comma :: proc(t: ^testing.T) {
+	counts := make_test_counts()
+	output := format_output(counts, "", false, false, false)
+	defer delete(output)
+	testing.expect_value(t, output, "bytes: 34, words: 5, lines: 3")
+}
+
 // --- 문자열 동적 조합 학습 테스트 ---
 
 // 방법 1: [dynamic]string + strings.join

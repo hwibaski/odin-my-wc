@@ -6,10 +6,10 @@ import "core:os"
 import "core:strings"
 
 Options :: struct {
-	file:  string `args:"pos=0,required" usage:"input file path"`,
-	lines: bool `usage:"print the newline counts"`,
-	words: bool `usage:"print the word counts"`,
-	bytes: bool `usage:"print the byte counts"`,
+	overflow: [dynamic]string,
+	lines:    bool `usage:"print the newline counts"`,
+	words:    bool `usage:"print the word counts"`,
+	bytes:    bool `usage:"print the byte counts"`,
 }
 
 main :: proc() {
@@ -17,74 +17,73 @@ main :: proc() {
 
 	opt: Options
 	flags.parse_or_exit(&opt, args, .Unix)
-	fmt.println(opt)
 
-	path := opt.file
-
-	data, err := read_file(path)
-	if err != ReadFileError.None {
-		print_file_error(err, path)
+	if len(opt.overflow) == 0 {
+		fmt.eprintln("error: no file specified")
 		os.exit(1)
 	}
-	defer delete(data)
 
-	counts := count_all(data)
+	total_counts := Counts{0, 0, 0}
+	has_error := false
 
-	print(counts, opt)
+	for path in opt.overflow {
+		data, err := read_file(path)
+		if err != ReadFileError.None {
+			print_file_error(err, path)
+			has_error = true
+			continue
+		}
+		defer delete(data)
+
+		counts := count_all(data)
+
+		total_counts.line_count += counts.line_count
+		total_counts.word_count += counts.word_count
+		total_counts.byte_count += counts.byte_count
+
+		print_counts(counts, opt, path)
+	}
+
+	if len(opt.overflow) > 1 {
+		print_counts(total_counts, opt, "", "total_")
+	}
+
+	if has_error {
+		os.exit(1)
+	}
 }
 
 format_output :: proc(
 	counts: Counts,
 	path: string,
 	show_lines, show_words, show_bytes: bool,
+	prefix := ""
 ) -> string {
 	parts: [dynamic]string
 	defer delete(parts)
 
 	show_all := !show_bytes && !show_words && !show_lines
 	if show_all || show_bytes {
-		append(&parts, fmt.tprintf("bytes: %d", counts.byte_count))
+		append(&parts, fmt.tprintf("%sbytes: %d", prefix, counts.byte_count))
 	}
 	if show_all || show_words {
-		append(&parts, fmt.tprintf("words: %d", counts.word_count))
+		append(&parts, fmt.tprintf("%swords: %d", prefix, counts.word_count))
 	}
 	if show_all || show_lines {
-		append(&parts, fmt.tprintf("lines: %d", counts.line_count))
+		append(&parts, fmt.tprintf("%slines: %d", prefix, counts.line_count))
 	}
-	append(&parts, path)
+	if path != "" {
+		append(&parts, path)
+	}
 
 	return strings.join(parts[:], ", ")
 }
 
 
-print :: proc(counts: Counts, opt: Options) {
-	output := format_output(counts, opt.file, opt.lines, opt.words, opt.bytes)
+print_counts :: proc(counts: Counts, opt: Options, path: string, prefix := "") {
+	output := format_output(counts, path, opt.lines, opt.words, opt.bytes, prefix)
+	defer delete(output)
 	fmt.println(output)
-}
-
-// odin run . -- path 로 입력
-// 빌드 후 실행
-// odin build .
-// ./odin-my-wc this
-validate_args :: proc(args: []string) -> (string, bool) {
-	// args[0] -> 프로그램 이름, args[1] -> 파일 경로
-
-	// 인자가 0개 -> 오류
-	if (len(args) < 2) {
-		return "", false
-	}
-
-	// 인자가 2개 초과 -> 오류
-	if (len(args) > 2) {
-		return "", false
-	}
-
-	// 정상: args[1] -> 파일 경로 반환
-	return args[1], true
-}
-
-print_usage :: proc() {
-	fmt.eprintln("usage: odin-my-wc <path>")
 }
 
 print_file_error :: proc(err: ReadFileError, path: string) {
