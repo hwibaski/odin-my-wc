@@ -19,8 +19,16 @@ main :: proc() {
 	flags.parse_or_exit(&opt, args, .Unix)
 
 	if len(opt.overflow) == 0 {
-		fmt.eprintln("error: no file specified")
-		os.exit(1)
+		data, ok := read_stdin()
+		if !ok {
+			fmt.eprintln("error: failed to read stdin")
+			os.exit(1)
+		}
+		defer delete(data)
+
+		counts := count_all(data)
+		print_counts(counts, opt, "-")
+		return
 	}
 
 	total_counts := Counts{0, 0, 0}
@@ -53,11 +61,19 @@ main :: proc() {
 	}
 }
 
+read_stdin :: proc() -> (data: []u8, ok: bool) {
+	stdin, err := os.read_entire_file_from_file(os.stdin, context.allocator)
+	if err != nil {
+		return nil, false
+	}
+	return stdin, true
+}
+
 format_output :: proc(
 	counts: Counts,
 	path: string,
 	show_lines, show_words, show_bytes: bool,
-	prefix := ""
+	prefix := "",
 ) -> string {
 	parts: [dynamic]string
 	defer delete(parts)
