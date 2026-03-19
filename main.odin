@@ -1,16 +1,25 @@
 package main
 
+import "core:flags"
 import "core:fmt"
 import "core:os"
-import "core:testing"
+import "core:strings"
+
+Options :: struct {
+	file:  string `args:"pos=0,required" usage:"input file path"`,
+	lines: bool `usage:"print the newline counts"`,
+	words: bool `usage:"print the word counts"`,
+	bytes: bool `usage:"print the byte counts"`,
+}
 
 main :: proc() {
 	args := os.args
-	path, ok := validate_args(args)
-	if !ok {
-		print_usage()
-		os.exit(1)
-	}
+
+	opt: Options
+	flags.parse_or_exit(&opt, args, .Unix)
+	fmt.println(opt)
+
+	path := opt.file
 
 	data, err := read_file(path)
 	if err != ReadFileError.None {
@@ -20,8 +29,37 @@ main :: proc() {
 	defer delete(data)
 
 	counts := count_all(data)
-	fmt.printfln("%d %d %d %s", counts.line_count, counts.word_count, counts.byte_count, path)
 
+	print(counts, opt)
+}
+
+format_output :: proc(
+	counts: Counts,
+	path: string,
+	show_lines, show_words, show_bytes: bool,
+) -> string {
+	parts: [dynamic]string
+	defer delete(parts)
+
+	show_all := !show_bytes && !show_words && !show_lines
+	if show_all || show_bytes {
+		append(&parts, fmt.tprintf("bytes: %d", counts.byte_count))
+	}
+	if show_all || show_words {
+		append(&parts, fmt.tprintf("words: %d", counts.word_count))
+	}
+	if show_all || show_lines {
+		append(&parts, fmt.tprintf("lines: %d", counts.line_count))
+	}
+	append(&parts, path)
+
+	return strings.join(parts[:], ", ")
+}
+
+
+print :: proc(counts: Counts, opt: Options) {
+	output := format_output(counts, opt.file, opt.lines, opt.words, opt.bytes)
+	fmt.println(output)
 }
 
 // odin run . -- path 로 입력
