@@ -32,7 +32,12 @@ main :: proc() {
 		return
 	}
 
-	total_counts := Counts{0, 0, 0, 0}
+	total_counts := Counts {
+		byte_count = 0,
+		line_count = 0,
+		word_count = 0,
+		char_count = 0,
+	}
 	has_error := false
 
 	for path in opt.overflow {

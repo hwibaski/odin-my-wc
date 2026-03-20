@@ -881,3 +881,129 @@ strings.write_string(&b, " temp.txt")
 - 순차적으로 **버퍼에 쌓아갈** 때 → `strings.builder`
 - 성능이 중요하지 않은 학습/CLI 단계에서는 어느 쪽이든 상관없음
 - 두 방법 모두 **반환된 문자열은 호출자가 `delete`로 정리**해야 함
+
+---
+
+## stdin 전체 읽기 학습 노트
+
+파일과 달리 `stdin`은 길이를 미리 모를 수 있습니다. 파이프 입력은 특히 "얼마나 들어올지"를 먼저 알기 어렵기 때문에, `fstat + make + read_full` 패턴보다 `전체 읽기 유틸`이 더 편합니다.
+
+### 가장 간단한 방식
+
+```odin
+import "core:os"
+
+read_stdin :: proc() -> (data: []u8, ok: bool) {
+    data, err := os.read_entire_file_from_file(os.stdin, context.allocator)
+    if err != nil {
+        return nil, false
+    }
+    return data, true
+}
+```
+
+### 왜 이 방식이 편한가?
+
+- `stdin` 크기를 미리 알 필요가 없음
+- 내부에서 반복 읽기를 처리해줌
+- `echo "hello" | program` 같은 파이프 입력에도 바로 쓸 수 있음
+
+### 호출 쪽에서 잊기 쉬운 점
+
+```odin
+data, ok := read_stdin()
+if !ok {
+    os.exit(1)
+}
+defer delete(data)
+```
+
+- 읽은 바이트 슬라이스는 동적 메모리일 수 있으므로 `delete(data)`가 필요합니다.
+- `stdin` 자체는 표준 스트림이라 직접 닫지 않습니다.
+
+---
+
+## UTF-8 문자 수와 바이트 수는 다르다
+
+`len(data)`는 **바이트 수**이고, 사람이 보통 생각하는 "문자 수"와 다를 수 있습니다.
+
+### 예시
+
+```odin
+str := "안녕"
+data := transmute([]u8)(str)
+
+fmt.println(len(data)) // 6 bytes
+```
+
+한글 2글자지만 UTF-8에서는 6바이트입니다.
+
+### 문자 수를 세는 가장 쉬운 방법
+
+```odin
+import "core:unicode/utf8"
+
+count_chars :: proc(data: []u8) -> int {
+    return utf8.rune_count_in_bytes(data)
+}
+```
+
+### `rune_count_in_bytes`가 의미하는 것
+
+- UTF-8 code point 개수를 셉니다.
+- ASCII는 보통 `bytes == chars`
+- 한글, 한자, 이모지는 `bytes != chars`일 수 있음
+- 잘못된 UTF-8 바이트가 있으면 그 부분도 폭 1의 에러 rune처럼 셉니다.
+
+### 예시 감각 잡기
+
+| 입력 | 바이트 수 | 문자 수 |
+| --- | --- | --- |
+| `"hello"` | 5 | 5 |
+| `"안녕"` | 6 | 2 |
+| `"a🙂b"` | 6 | 3 |
+
+### 주의
+
+이건 **grapheme cluster(사용자가 보는 글자 묶음)** 개수가 아닙니다.
+
+예를 들어 조합형 문자 `"é"`는 화면에서는 1글자처럼 보여도 rune 기준으로는 2개일 수 있습니다. 지금 프로젝트의 `--chars`는 이 수준까지는 다루지 않고, UTF-8 rune 개수까지만 계산하면 충분합니다.
+
+---
+
+## 구조체 필드가 늘어나면 named literal이 더 안전하다
+
+이번처럼 `Counts`에 `char_count`가 추가되면, 위치 기반 초기화는 바로 깨지기 쉽습니다.
+
+### 위치 기반 초기화
+
+```odin
+Counts{0, 0, 0}
+```
+
+- 필드가 3개일 때만 맞습니다.
+- 필드가 하나 추가되면 호출부를 전부 수정해야 합니다.
+- 순서를 헷갈리면 컴파일은 되는데 값이 잘못 들어갈 수도 있습니다.
+
+### named field 초기화
+
+```odin
+Counts{
+    byte_count = 0,
+    line_count = 0,
+    word_count = 0,
+    char_count = 0,
+}
+```
+
+또는 기본값이 전부 0이면:
+
+```odin
+Counts{}
+```
+
+### 실전 기준
+
+- 필드 수가 적고 순서가 절대 안 바뀌면 위치 기반도 가능
+- 타입이 성장할 가능성이 있으면 named field가 안전
+- 특히 테스트용 fixture나 total accumulator는 named field가 유지보수에 유리
