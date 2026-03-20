@@ -8,6 +8,13 @@ Counts :: struct {
 	char_count: int,
 }
 
+accumulate_counts :: proc(total: ^Counts, counts: Counts) {
+	total.byte_count += counts.byte_count
+	total.line_count += counts.line_count
+	total.word_count += counts.word_count
+	total.char_count += counts.char_count
+}
+
 count_bytes :: proc(data: []u8) -> (byte_count: int) {
 	return len(data)
 }

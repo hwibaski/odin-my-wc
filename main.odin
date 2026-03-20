@@ -47,13 +47,10 @@ main :: proc() {
 			has_error = true
 			continue
 		}
-		defer delete(data)
 
 		counts := count_all(data)
-
-		total_counts.line_count += counts.line_count
-		total_counts.word_count += counts.word_count
-		total_counts.byte_count += counts.byte_count
+		delete(data)
+		accumulate_counts(&total_counts, counts)
 
 		print_counts(counts, opt, path)
 	}

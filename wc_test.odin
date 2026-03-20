@@ -126,6 +126,32 @@ test_crlf :: proc(t: ^testing.T) {
 	testing.expect_value(t, counts.byte_count, 14)
 }
 
+@(test)
+test_accumulate_counts_adds_all_fields :: proc(t: ^testing.T) {
+	total := Counts{byte_count = 10, line_count = 1, word_count = 2, char_count = 7}
+	next := Counts{byte_count = 4, line_count = 3, word_count = 5, char_count = 2}
+
+	accumulate_counts(&total, next)
+
+	testing.expect_value(t, total.byte_count, 14)
+	testing.expect_value(t, total.line_count, 4)
+	testing.expect_value(t, total.word_count, 7)
+	testing.expect_value(t, total.char_count, 9)
+}
+
+@(test)
+test_accumulate_counts_multiple_inputs :: proc(t: ^testing.T) {
+	total := Counts{}
+
+	accumulate_counts(&total, Counts{byte_count = 3, line_count = 1, word_count = 1, char_count = 3})
+	accumulate_counts(&total, Counts{byte_count = 6, line_count = 2, word_count = 2, char_count = 3})
+
+	testing.expect_value(t, total.byte_count, 9)
+	testing.expect_value(t, total.line_count, 3)
+	testing.expect_value(t, total.word_count, 3)
+	testing.expect_value(t, total.char_count, 6)
+}
+
 // --- format_output 테스트 ---
 
 make_test_counts :: proc() -> Counts {
